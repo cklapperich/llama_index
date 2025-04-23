@@ -30,39 +30,47 @@ from llama_index.llms.cortex.utils import (
     get_default_spcs_token,
     get_spcs_base_url,
 )
-from typing import List
 
-DEFAULT_CONTEXT_WINDOW = 128000
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_CONTEXT_WINDOW = 128_000
+DEFAULT_MAX_TOKENS = 4_096
 DEFAULT_MODEL = "llama3.2-1b"
 DEFAULT_TEMP = 0.0
 DEFAULT_TOP_P = 1.0
 
-# This is waiting on a support request from Snowflake to get exact numbers.
-# This was created based on pubilically available information in the meantime.
-# https://docsbot.ai/models
+DEFAULT_CONTEXT_WINDOW = 128_000
+DEFAULT_MAX_TOKENS = 4096  # !! This is the max for all requests to the Rest API, per # https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-llm-rest-api
+DEFAULT_MODEL = "llama3.2-1b"
+DEFAULT_TEMP = 0.0
+DEFAULT_TOP_P = 1.0
+
+# https://docs.snowflake.com/en/user-guide/snowflake-cortex/llm-functions#model-restrictions
+# https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-llm-rest-api
 model_specs = {
-    "claude-3-5-sonnet": {"context_window": 200_000, "max_output": 4096},
-    "llama4-maverick": {"context_window": 1_000_000, "max_output": None},
+    "claude-3-5-sonnet": {"context_window": 200_000, "max_output": None},
+    "llama4-maverick": {"context_window": 128_000, "max_output": None},
     "llama3.2-1b": {"context_window": 128_000, "max_output": None},
     "llama3.2-3b": {"context_window": 128_000, "max_output": None},
     "llama3.1-8b": {"context_window": 128_000, "max_output": None},
     "llama3.1-70b": {"context_window": 128_000, "max_output": None},
     "llama3.3-70b": {"context_window": 128_000, "max_output": None},
-    "snowflake-llama-3.3-70b": {"context_window": 128_000, "max_output": None},
+    "snowflake-llama-3.3-70b": {"context_window": 8_000, "max_output": None},
     "llama3.1-405b": {"context_window": 128_000, "max_output": None},
-    "snowflake-llama-3.1-405b": {"context_window": None, "max_output": None},
-    "snowflake-arctic": {"context_window": None, "max_output": None},
-    "deepseek-r1": {"context_window": 64_000, "max_output": 8_192},
-    "reka-core": {"context_window": 128_000, "max_output": None},
-    "reka-flash": {"context_window": 128_000, "max_output": None},
-    "mistral-large2": {"context_window": 128_000, "max_output": 8_192},
+    "snowflake-llama-3.1-405b": {"context_window": 8_000, "max_output": None},
+    "snowflake-arctic": {"context_window": 4_096, "max_output": None},
+    "deepseek-r1": {"context_window": 32_768, "max_output": None},
+    "reka-core": {"context_window": 32_000, "max_output": None},
+    "reka-flash": {"context_window": 100_000, "max_output": None},
+    "mistral-large": {"context_window": 32_000, "max_output": None},
+    "mistral-large2": {"context_window": 128_000, "max_output": None},
     "mixtral-8x7b": {"context_window": 32000, "max_output": None},
     "mistral-7b": {"context_window": 32000, "max_output": None},
-    "jamba-instruct": {"context_window": None, "max_output": None},
-    "jamba-1.5-mini": {"context_window": None, "max_output": None},
-    "jamba-1.5-large": {"context_window": None, "max_output": None},
-    "gemma-7b": {"context_window": 8_192, "max_output": None},
+    "jamba-instruct": {"context_window": 256_000, "max_output": None},
+    "jamba-1.5-mini": {"context_window": 256_000, "max_output": None},
+    "jamba-1.5-large": {"context_window": 256_000, "max_output": None},
+    "gemma-7b": {"context_window": 8_000, "max_output": None},
+    "llama2-70b-chat": {"context_window": 4_096, "max_output": None},
+    "llama3-8b": {"context_window": 8_000, "max_output": None},
+    "llama3-70b": {"context_window": 8_000, "max_output": None},
 }
 
 
@@ -74,6 +82,23 @@ class Cortex(CustomLLM):
     HTTP errors from the API (including invalid model names) will raise
     requests.exceptions.HTTPError for synchronous methods or
     aiohttp.ClientResponseError for asynchronous methods.
+
+    CONTEXT WINDOWS:
+    This attempts to set context windows by based on the documentation can be found here: # https://docs.snowflake.com/en/user-guide/snowflake-cortex/llm-functions#model-restrictions
+    default context window and max output tokens are found in llama_index.llms.cortex.model_specs as a python dict.
+
+    The Env vars SNOWFLAKE_ACCOUNT and SNOWFLAKE_USERNAME must be set or passed in as params 'user' and 'account'.
+
+    Authentication options:
+        1 Set param private_key_file: Path to a private key file
+
+        2 Set the ENV var 'SNOWFLAKE_KEY_FILE'
+
+        3 Be in an SPCS container environment, which will be automatically detected and the default session token used.
+
+    If none of the above conditions are true, a ValueError will be raised.
+
+    In an SPCS container, the default OAUTH token located at snowflake/session/token will be used always, as private key files do not work in SPCS environments.
 
     Examples:
         `pip install llama-index-llms-cortex`
@@ -119,59 +144,22 @@ class Cortex(CustomLLM):
     )
     model: str = Field(default=DEFAULT_MODEL, description="The model to use.")
 
-    jwt_token: str = Field(default=None, description="JWT token data or filepath")
-    session: Optional[Any] = Field(default=None, description="Snowpark Session object.")
-
     def __init__(
         self,
         model: str = DEFAULT_MODEL,
         user: Optional[str] = None,
         account: Optional[str] = None,
         private_key_file: Optional[str] = None,
-        jwt_token: Optional[str] = None,
-        session: Optional[Any] = None,
         callback_manager: Optional[CallbackManager] = None,
         additional_kwargs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Implements all Snowflake Cortex LLMs.
-
-        AUTHENTICATION:
-        The recommended way to connect is to install a 'snowflake-snowpark-python', then sue a snowflake.snowpark.Session object
-        Env vars SNOWFLAKE_ACCOUNT and SNOWFLAKE_USERNAME must be set or passed in as params.
-
-        There are 4 authentication params, each optional:
-            If on Snowpark Container Services, you can leave all 3 blank. The default OAUTH token will be used.
-            :param private_key_file: Path to a private key file
-            :param session: A snowflake Snowpark Session object.
-            :param jwt_token: a str or filepath containing a jwt token. This can be an OAUTH token.
-
-        If that isn't set, it will check if you're in an SCS container, an duse the default OAUTH token located at snowflake/session/token
-
         """
         super().__init__(
             additional_kwargs=additional_kwargs or {},
             callback_manager=callback_manager,
         )
-
-        def exactly_one_non_null(input: List):
-            return sum([x is not None for x in input]) == 1
-
-        if (
-            not exactly_one_non_null([private_key_file, jwt_token, session])
-            and not is_spcs_environment()
-        ):
-            raise ValueError(
-                "Must set exactly 1 of the 3 authentication parameters, OR be in an SPCS environment."
-            )
-
-        # jwt auth
-        if jwt_token:
-            if os.path.isfile(jwt_token):
-                with open(jwt_token) as fp:
-                    self.jwt_token = fp.read()
-            else:
-                self.jwt_token = jwt_token
 
         # private key auth
         if private_key_file:
@@ -179,16 +167,6 @@ class Cortex(CustomLLM):
                 "SNOWFLAKE_KEY_FILE", None
             )
 
-        # if no auth method specified and in SPCS environment, use the SPCS default session token
-        if (
-            private_key_file is None
-            and jwt_token is None
-            and session is None
-            and is_spcs_environment()
-        ):
-            self.jwt_token = get_default_spcs_token()
-
-        self.session = session
         self.model = model
         self.user = user or os.environ.get("SNOWFLAKE_USERNAME", None)
         self.account = account or os.environ.get("SNOWFLAKE_ACCOUNT", None)
@@ -235,7 +213,6 @@ class Cortex(CustomLLM):
         return {
             "url": self.cortex_complete_endpoint,
             "headers": {
-                "X-Snowflake-Authorization-Token-Type": "KEYPAIR_JWT",
                 "Authorization": f"Bearer {jwt}",
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream",
@@ -255,7 +232,10 @@ class Cortex(CustomLLM):
         api_response = requests.post(
             **self._make_completion_payload(prompt, formatted, **kwargs), stream=True
         )
-        api_response.raise_for_status()
+        # api_response.raise_for_status()
+        if not api_response.ok:
+            print(f"Error response: {api_response.text}")
+            api_response.raise_for_status()
         responses = []
         for line in api_response.iter_lines(decode_unicode=True):
             if line:
@@ -341,10 +321,8 @@ class Cortex(CustomLLM):
     def _generate_auth_token(self) -> str:
         # private key file has to be checked 2nd to last,
         # it can be set merely due to an env variable existing
-        if self.jwt_token:
-            return self.jwt_token
-        elif self.session:
-            return self.session.connection.rest.token
+        if is_spcs_environment():
+            return get_default_spcs_token()
         elif self.private_key_file:
             return generate_sf_jwt(self.account, self.user, self.private_key_file)
         else:
@@ -366,10 +344,10 @@ class Cortex(CustomLLM):
         top_p = kwargs.pop("top_p", DEFAULT_TOP_P)
         max_tokens = kwargs.pop("max_tokens", self.max_tokens)
         jwt = self._generate_auth_token()
+        print("ENDPOINT: ", self.cortex_complete_endpoint)
         return {
             "url": self.cortex_complete_endpoint,
             "headers": {
-                "X-Snowflake-Authorization-Token-Type": "KEYPAIR_JWT",
                 "Authorization": f"Bearer {jwt}",
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream",
