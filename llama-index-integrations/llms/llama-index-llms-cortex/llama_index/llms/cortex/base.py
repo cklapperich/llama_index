@@ -1,7 +1,7 @@
 import json
 import os
 from typing import Any, Dict, Optional, Sequence
-
+import warnings
 import aiohttp
 import requests
 from llama_index.core.base.llms.types import MessageRole
@@ -173,6 +173,10 @@ class Cortex(CustomLLM):
         specs = model_specs.get(self.model, {})
         self.context_window = specs.get("context_window") or DEFAULT_CONTEXT_WINDOW
         self.max_tokens = specs.get("max_output") or DEFAULT_MAX_TOKENS
+        if self.max_tokens > 4096:
+            warnings.warn(
+                "Snowflake REST API limits max tokens to 4096. This will probably cause an API error."
+            )
 
     @property
     def metadata(self) -> LLMMetadata:
@@ -230,10 +234,7 @@ class Cortex(CustomLLM):
         api_response = requests.post(
             **self._make_completion_payload(prompt, formatted, **kwargs), stream=True
         )
-        # api_response.raise_for_status()
-        if not api_response.ok:
-            print(f"Error response: {api_response.text}")
-            api_response.raise_for_status()
+        api_response.raise_for_status()
         responses = []
         for line in api_response.iter_lines(decode_unicode=True):
             if line:

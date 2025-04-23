@@ -41,63 +41,18 @@ completion_response = llm.complete(
 print(completion_response)
 ```
 
-## Example Using a Session
-
-```python
-import os
-from snowflake.snowpark import Session
-from llama_index.llms.cortex import Cortex
-
-connection_parameters = {
-    "account": "<your snowflake account>",
-    "user": "<your snowflake user>",
-    "role": "<your snowflake role>",
-    "database": "<your snowflake database>",
-    "schema": "<your snowflake schema",
-    "warehouse": "<your snowflake warehouse>",
-    "authenticator": "JWT_AUTHENTICATOR",
-}
-session = Session.builder.configs(connection_parameters).create()
-
-
-llm = Cortex(
-    model="llama3.2-1b",
-    user=os.environ["YOUR_SF_USER"],
-    account=os.environ["YOUR_SF_ACCOUNT"],
-    session=session,
-)
-
-completion_response = llm.complete(
-    "write me a haiku about a snowflake", temperature=0.0
-)
-print(completion_response)
-```
-
 ## Connect in an SPCS environment
 
 ```python
 import os
-from snowflake.snowpark import Session
 from llama_index.llms.cortex import Cortex
 from llama_index.llms.cortex import utils as cortex_utils
 
-connection_parameters = {
-    "account": "<your snowflake account>",
-    "user": "<your snowflake user>",
-    "role": "<your snowflake role>",
-    "database": "<your snowflake database>",
-    "schema": "<your snowflake schema",
-    "warehouse": "<your snowflake warehouse>",
-    "token": cortex_utils.get_default_spcs_token(),
-    "authenticator": "JWT_AUTHENTICATOR",
-}
-session = Session.builder.configs(connection_parameters).create()
-
 llm = Cortex(
     model="llama3.2-1b",
-    user=os.environ["YOUR_SF_USER"],
-    account=os.environ["YOUR_SF_ACCOUNT"],
-    session=session,
+    user=os.environ[
+        "SNOWFLAKE_USERNAME"
+    ],  # usually your email address. SPCS sets the 'SNOWFLAKE_ACCOUNT' env var for you.
 )
 
 completion_response = llm.complete(
