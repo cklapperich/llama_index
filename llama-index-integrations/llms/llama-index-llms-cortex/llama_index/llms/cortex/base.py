@@ -161,7 +161,7 @@ class Cortex(CustomLLM):
             callback_manager=callback_manager,
         )
 
-        private_key_file = private_key_file or os.environ.get(
+        self.private_key_file = private_key_file or os.environ.get(
             "SNOWFLAKE_KEY_FILE", None
         )
 
