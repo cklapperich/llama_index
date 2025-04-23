@@ -161,11 +161,9 @@ class Cortex(CustomLLM):
             callback_manager=callback_manager,
         )
 
-        # private key auth
-        if private_key_file:
-            self.private_key_file = private_key_file or os.environ.get(
-                "SNOWFLAKE_KEY_FILE", None
-            )
+        private_key_file = private_key_file or os.environ.get(
+            "SNOWFLAKE_KEY_FILE", None
+        )
 
         self.model = model
         self.user = user or os.environ.get("SNOWFLAKE_USERNAME", None)
